@@ -174,7 +174,7 @@ fn main() -> Result<()> {
     // part 2
     let free_space = 70_000_000 - root_size;
     let needed_space = 30_000_000 - free_space;
-    if needed_space <= 0 {
+    if needed_space == 0 {
         println!("alreay have enough space");
     } else {
         let min = dirs

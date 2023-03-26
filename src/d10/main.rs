@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
+use std::io::{stdout, Write};
 use std::str::FromStr;
-
 enum Instr {
     Noop,
     Add(i32),
@@ -22,15 +22,12 @@ impl Instr {
     }
 }
 
-fn part1<T: Iterator<Item = &'static str>>(data: T) -> Result<i32> {
+fn run<T: Iterator<Item = &'static str>>(data: T) -> [i32; 240] {
     let mut cycle_count: usize = 0;
-    let mut register_vals: [i32; 250] = [0; 250];
+    let mut register_vals: [i32; 240] = [0; 240];
     let mut register: i32 = 1;
 
     for line in data.map(|s| s.trim()) {
-        if cycle_count > 220 {
-            break;
-        }
         match Instr::decode(line).unwrap() {
             // remove this?
             Instr::Noop => {
@@ -46,17 +43,45 @@ fn part1<T: Iterator<Item = &'static str>>(data: T) -> Result<i32> {
             }
         }
     }
+    register_vals
+}
 
-    Ok(20 * register_vals[20]
-        + 60 * register_vals[60]
-        + 100 * register_vals[100]
-        + 140 * register_vals[140]
-        + 180 * register_vals[180]
-        + 220 * register_vals[220])
+fn part1<T: Iterator<Item = &'static str>>(data: T) -> Result<i32> {
+    let register_vals = run(data);
+
+    Ok(20 * register_vals[20 - 1]
+        + 60 * register_vals[60 - 1]
+        + 100 * register_vals[100 - 1]
+        + 140 * register_vals[140 - 1]
+        + 180 * register_vals[180 - 1]
+        + 220 * register_vals[220 - 1])
+}
+
+fn part2<T: Iterator<Item = &'static str>>(data: T) {
+    let register_vals = run(data);
+    let mut lock = stdout().lock();
+    let mut cycle = 0;
+
+    for val in register_vals.iter() {
+        lock.write_all(if (cycle - val).abs() <= 1 {
+            &[b'#']
+        } else {
+            &[b'.']
+        })
+        .unwrap();
+        if (cycle + 1) % 40 == 0 {
+            lock.write_all(&[b'\n']).unwrap();
+            cycle = 0;
+        } else {
+            cycle += 1;
+        }
+    }
 }
 fn main() -> Result<()> {
-    let data = include_str!("test-input.txt");
+    //    let data = include_str!("test-input.txt");
+    let data = include_str!("input.txt");
     println!("Part 1: {}", part1(data.lines()).unwrap());
+    part2(data.lines());
     Ok(())
 }
 
