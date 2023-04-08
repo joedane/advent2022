@@ -1,5 +1,3 @@
-#![feature(let_else)]
-
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::str::FromStr;
