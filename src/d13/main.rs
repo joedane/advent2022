@@ -1,4 +1,5 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use core::fmt::Display;
 use itertools::Itertools;
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag};
@@ -24,6 +25,25 @@ impl PartialEq for Item {
         }
     }
 }
+
+impl Display for Item {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Item::Int(i) => write!(f, "{}", i),
+            Item::List(v) => {
+                write!(f, "[");
+                for i in v.iter() {
+                    i.fmt(f);
+                    write!(f, ",");
+                }
+                write!(f, "]");
+                Ok(())
+            }
+        }
+    }
+}
+impl Eq for Item {}
+
 impl PartialOrd for Item {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering::*;
@@ -39,32 +59,32 @@ impl PartialOrd for Item {
                 self.partial_cmp(&v2)
             }
             (List(v1), List(v2)) => {
-                for i in 0..v1.len() {
-                    if i >= v2.len() {
+                if v1.len() == 0 {
+                    if v2.len() > 0 {
                         return Some(Less);
-                    }
-                    match v1[i].partial_cmp(&v2[i]) {
-                        Some(Less) => {
-                            return Some(Less);
-                        }
-                        Some(Greater) => {
-                            return Some(Greater);
-                        }
-                        None => {
-                            panic!()
-                        }
-                        _ => {}
+                    } else {
+                        return Some(Equal);
                     }
                 }
-                if v1.len() < v2.len() {
-                    return Some(Less);
-                } else {
-                    return Some(Equal);
+                if v2.len() == 0 {
+                    return Some(Greater);
+                }
+                match v1[0].partial_cmp(&v2[0]) {
+                    Some(Less) => Some(Less),
+                    Some(Greater) => Some(Greater),
+                    _ => List(v1[1..].to_vec()).partial_cmp(&List(v2[1..].to_vec())),
                 }
             }
         }
     }
 }
+
+impl Ord for Item {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
 fn digits(input: &str) -> IResult<&str, Item> {
     map(digit1, |d| Item::Int(str::parse(d).unwrap()))(input)
 }
@@ -85,36 +105,54 @@ fn parse_item(input: &str) -> IResult<&str, Item> {
     //    println!("parsing: {}", input);
     alt((digits, list))(input)
 }
-fn main() -> Result<()> {
-    let input = r"[1,1,3,1,1]
-    [1,1,5,1,1]
-    
-    [[1],[2,3,4]]
-    [[1],4]
-    
-    [9]
-    [[8,7,6]]
-    
-    [[4,4],4,4]
-    [[4,4],4,4,4]
-    
-    [7,7,7,7]
-    [7,7,7]
-    
-    []
-    [3]
-    
-    [[[]]]
-    [[]]
-    
-    [1,[2,[3,[4,[5,6,7]]]],8,9]
-    [1,[2,[3,[4,[5,6,0]]]],8,9]";
 
-    for (i, mut chunk) in input.lines().chunks(3).into_iter().enumerate() {
+fn part1<T>(input: T) -> Result<()>
+where
+    T: Iterator<Item = &'static str>,
+{
+    let mut sum = 0;
+    for (i, mut chunk) in input.chunks(3).into_iter().enumerate() {
         let (src1, src2) = (chunk.next().unwrap().trim(), chunk.next().unwrap().trim());
         let (set1, set2) = (parse_item(src1)?, parse_item(src2)?);
+        if let Some(std::cmp::Ordering::Less) = set1.partial_cmp(&set2) {
+            sum += i + 1;
+        }
     }
+    println!("sum: {sum}");
+    Ok(())
+}
+fn main() -> Result<()> {
+    let input = include_str!("input.txt");
 
+    let mut items: Vec<Item> = input
+        .lines()
+        .filter_map(|s| {
+            let st = s.trim();
+            (!st.is_empty()).then_some(st)
+        })
+        .map(|s| parse_item(s).map(|v| v.1))
+        .collect::<Result<Vec<Item>, _>>()?;
+
+    let m1 = parse_item("[[2]]")?.1;
+    let m2 = parse_item("[[6]]")?.1;
+
+    items.push(m1.clone());
+    items.push(m2.clone());
+
+    items.sort();
+
+    let p1 = items.iter().position(|i| m1.eq(i)).unwrap();
+    let p2 = items.iter().position(|i| m2.eq(i)).unwrap();
+
+    for (i, p) in items.iter().enumerate() {
+        println!("{i}: {p}");
+    }
+    println!(
+        "p1: {}, p2: {}, result: {}",
+        p1 + 1,
+        p2 + 1,
+        (p1 + 1) * (p2 + 1)
+    );
     Ok(())
 }
 
@@ -155,6 +193,18 @@ mod test {
 
         let input = "[7,7,7,7]
         [7,7,7]";
+        assert_eq!(do_test_ord(input), Some(Ordering::Greater));
+
+        let input = "[]
+        [3]";
+        assert_eq!(do_test_ord(input), Some(Ordering::Less));
+
+        let input = "[[[]]]
+        [[]]";
+        assert_eq!(do_test_ord(input), Some(Ordering::Greater));
+
+        let input = "[1,[2,[3,[4,[5,6,7]]]],8,9]
+        [1,[2,[3,[4,[5,6,0]]]],8,9]";
         assert_eq!(do_test_ord(input), Some(Ordering::Greater));
     }
 }
