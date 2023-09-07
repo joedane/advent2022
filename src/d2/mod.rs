@@ -1,4 +1,16 @@
+use crate::PuzzleRun;
+use std::io::BufRead;
+
 #[derive(Debug, Copy, Clone)]
+
+struct Part1;
+
+struct Part2;
+
+pub fn get_runs() -> Vec<Box<dyn PuzzleRun>> {
+    vec![Box::new(Part1), Box::new(Part2)]
+}
+#[derive(Debug, Clone, Copy)]
 enum Choice1 {
     Rock,
     Paper,
@@ -109,30 +121,39 @@ impl ParseLine for &str {
     }
 }
 
-fn _part1(lines: std::str::Lines) {
-    let score = lines
-        .map(|l| l.parse_as_choice())
-        .map(|(c1, c2)| (c1, c2, c1.score(c2)))
-        //.inspect(|v| println!("v: {:?}", v))
-        .map(|(_, _, score)| score)
-        .sum::<u64>();
+impl PuzzleRun for Part1 {
+    fn input_data(&self) -> anyhow::Result<&str> {
+        crate::read_file("src/d2/input.txt")
+    }
 
-    println!("score: {score}");
+    fn run(&self, input: &str) -> String {
+        let score = input
+            .lines()
+            .map(|l| l.parse_as_choice())
+            .map(|(c1, c2)| (c1, c2, c1.score(c2)))
+            //.inspect(|v| println!("v: {:?}", v))
+            .map(|(_, _, score)| score)
+            .sum::<u64>();
+
+        format!("score: {score}")
+    }
 }
 
-fn part2(lines: std::str::Lines) {
-    let score = lines
-        .map(|l| l.parse_as_choice())
-        .inspect(|c| println!("line: {:?}", c))
-        .map(|(c1, c2)| (c1, c2, c1.score(c2.as_directed(c1))))
-        .inspect(|v| println!("v: {:?}", v))
-        .map(|(_, _, score)| score)
-        .sum::<u64>();
+impl PuzzleRun for Part2 {
+    fn input_data(&self) -> anyhow::Result<&str> {
+        crate::read_file("src/d2/input.txt")
+    }
 
-    println!("score = {score}");
-}
+    fn run(&self, input: &str) -> String {
+        let score = input
+            .lines()
+            .map(|l| l.parse_as_choice())
+            .inspect(|c| println!("line: {:?}", c))
+            .map(|(c1, c2)| (c1, c2, c1.score(c2.as_directed(c1))))
+            .inspect(|v| println!("v: {:?}", v))
+            .map(|(_, _, score)| score)
+            .sum::<u64>();
 
-fn main() {
-    let lines = include_str!("input.txt").lines();
-    part2(lines);
+        format!("score = {score}")
+    }
 }

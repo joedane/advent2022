@@ -1,4 +1,9 @@
+use crate::PuzzleRun;
 use itertools::Itertools;
+
+pub fn get_runs() -> Vec<Box<dyn PuzzleRun>> {
+    vec![Box::new(Part1), Box::new(Part2)]
+}
 
 fn find_duplicate(line: &str) -> Option<char> {
     if line.len() % 2 != 0 {
@@ -9,32 +14,54 @@ fn find_duplicate(line: &str) -> Option<char> {
     }
 }
 
-fn part2<'a, L>(mut lines: L) -> Result<u64, &'static str>
-where
-    L: Iterator<Item = &'a str>,
-{
-    let sum: u64 = std::iter::from_fn(move || lines.next_tuple::<(&'a str, &'a str, &'a str)>())
-        .map(|(a, b, c)| {
-            println!("a: {a}\nb: {b}\nc: {c}");
-            let found = a
-                .chars()
-                .find(|a_char| b.contains(*a_char) && c.contains(*a_char))
-                .unwrap();
-            println!("found: {found}");
-            <u8 as Into<u64>>::into(priority(found as u8))
-        })
-        .sum::<u64>();
-    Ok(sum)
+struct Part2;
+
+impl PuzzleRun for Part2 {
+    fn input_data(&self) -> anyhow::Result<&str> {
+        crate::read_file("src/d3/input.txt")
+    }
+
+    fn run(&self, input: &str) -> String {
+        let mut lines = input.lines();
+        let sum: u64 = std::iter::from_fn(move || lines.next_tuple::<(&str, &str, &str)>())
+            .map(|(a, b, c)| {
+                println!("a: {a}\nb: {b}\nc: {c}");
+                let found = a
+                    .chars()
+                    .find(|a_char| b.contains(*a_char) && c.contains(*a_char))
+                    .unwrap();
+                println!("found: {found}");
+                <u8 as Into<u64>>::into(priority(found as u8))
+            })
+            .sum::<u64>();
+
+        format!("{}", sum)
+    }
 }
 
-fn part1(lines: std::str::Lines) -> u64 {
-    lines
-        .map(|l| {
-            let dup = find_duplicate(l).unwrap();
-            let p: u64 = priority(dup as u8).into();
-            p
-        })
-        .sum::<u64>()
+struct Part1;
+
+impl PuzzleRun for Part1 {
+    fn input_data(&self) -> anyhow::Result<&str> {
+        crate::read_file("src/d3/input.txt")
+    }
+
+    fn run(&self, input: &str) -> String {
+        format!("{}", self._run(input))
+    }
+}
+
+impl Part1 {
+    fn _run(&self, input: &str) -> u64 {
+        input
+            .lines()
+            .map(|l| {
+                let dup = find_duplicate(l).unwrap();
+                let p: u64 = priority(dup as u8).into();
+                p
+            })
+            .sum::<u64>()
+    }
 }
 
 fn priority(in_val: u8) -> u8 {
@@ -46,16 +73,11 @@ fn priority(in_val: u8) -> u8 {
         panic!("invalid character: {in_val}");
     }
 }
-fn main() {
-    let data = include_str!("input.txt");
-    println!("part 1: {}", part1(data.lines()));
-    println!("part 2: {}", part2(data.lines()).unwrap());
-}
 
 #[cfg(test)]
 mod test {
-    use crate::find_duplicate;
-    use crate::priority;
+
+    use super::{find_duplicate, priority};
 
     #[test]
     fn test_find_dup() {
@@ -98,12 +120,10 @@ mod test {
 
     #[test]
     fn test_part2() {
-        let lines = [
-            "vJrwpWtwJgWrhcsFMMfFFhFp",
-            "jqHRNqRjqzjGDLGLrsFMfFZSrLrFZsSL",
-            "PmmdzqPrVvPwwTWBwg",
-        ];
+        let lines = "vJrwpWtwJgWrhcsFMMfFFhFp
+            jqHRNqRjqzjGDLGLrsFMfFZSrLrFZsSL
+            PmmdzqPrVvPwwTWBwg";
 
-        assert_eq!(crate::part2(lines.into_iter()).unwrap(), 18);
+        assert_eq!(super::Part1::_run(&super::Part1, lines), 18);
     }
 }
