@@ -94,7 +94,7 @@ pub(crate) struct Topo {
     data: HashMap<Coord, State>,
     bounds: Bounds,
     active: Vec<Coord>,
-    floor: bool,
+    floor: Option<usize>,
 }
 
 pub(crate) enum StepResult {
@@ -156,7 +156,7 @@ impl FromIterator<Coord> for Topo {
             data,
             bounds,
             active: vec![],
-            floor: false,
+            floor: None,
         }
     }
 }
@@ -169,13 +169,23 @@ impl std::fmt::Debug for Topo {
         let Bounds {
             upper_left: ul,
             lower_right: lr,
-        } = self
-            .bounds
-            .maybe_expand(Coord::new(0, 0), Coord::new(20, 20));
+        } = self.bounds;
 
-        for y in 0..(lr.y + 1) {
-            for x in ul.x..(lr.x + 1) {
+        let display_floor = match self.floor {
+            Some(floor) => floor,
+            None => lr.y,
+        };
+        let (start_x, end_x) = match self.floor {
+            Some(_) => (ul.x - 2, lr.x + 2),
+            None => (ul.x, lr.x),
+        };
+
+        //.maybe_expand(Coord::new(0, 0), Coord::new(20, 20));
+
+        for y in 0..(display_floor + 1) {
+            for x in start_x..(end_x + 1) {
                 let s = match self[Coord::new(x, y)] {
+                    _ if y == lr.y + 2 => "=",
                     State::Empty => ".",
                     State::Sand => "o",
                     State::Wall => "#",
@@ -217,7 +227,7 @@ impl Topo {
     }
 
     pub(crate) fn with_floor(&mut self) {
-        self.floor = true;
+        self.floor = Some(self.bounds.lower_right.y + 2);
     }
 
     pub(crate) fn from_lines(lines: Vec<Line>) -> Self {
@@ -286,7 +296,7 @@ impl Topo {
             data,
             bounds,
             active: vec![],
-            floor: false,
+            floor: None,
         }
     }
 
@@ -314,8 +324,8 @@ impl Topo {
         let mut rs = vec![];
         let actives = std::mem::take(&mut self.active);
 
-        println!("{:?}", self);
-        panic!();
+        //println!("{:?}", self);
+
         for c in actives.into_iter() {
             let result = self.next_pos(c);
             if let StepResult::Moved(from, to) = result {
@@ -331,21 +341,16 @@ impl Topo {
     fn next_pos(&self, p: Coord) -> StepResult {
         let current_bound = self.bounds;
 
-        if p.y >= current_bound.lower_right.y {
-            if self.floor {
-                if p.y == current_bound.lower_right.y {
-                    return StepResult::Moved(p, Coord::new(p.x, p.y + 1));
-                } else {
-                    if p.y + 1 > current_bound.lower_right.y {
-                        panic!()
-                    }
-                    return StepResult::Stopped(p);
-                }
-            } else {
-                // fall off the bottom
+        if let Some(floor) = self.floor {
+            if p.y + 1 == floor {
+                return StepResult::Stopped(p);
+            }
+        } else {
+            if p.y == current_bound.lower_right.y {
                 return StepResult::Off(p);
             }
         }
+
         let mut c: Coord = Default::default();
 
         c.x = p.x;
@@ -356,23 +361,25 @@ impl Topo {
         }
 
         // diag left?
-        if p.x <= current_bound.upper_left.x {
-            return StepResult::Off(p);
-        }
         c.x = p.x - 1;
         c.y = p.y + 1;
         if let State::Empty = self[c] {
-            return StepResult::Moved(p, c);
+            if self.floor.is_some() || c.x >= current_bound.upper_left.x {
+                return StepResult::Moved(p, c);
+            } else {
+                return StepResult::Off(p);
+            }
         }
 
         // diag right?
-        if p.x + 1 >= current_bound.lower_right.x {
-            return StepResult::Off(p);
-        }
         c.x = p.x + 1;
         c.y = p.y + 1;
         if let State::Empty = self[c] {
-            return StepResult::Moved(p, c);
+            if self.floor.is_some() || c.x <= current_bound.lower_right.x {
+                return StepResult::Moved(p, c);
+            } else {
+                return StepResult::Off(p);
+            }
         }
         StepResult::Stopped(p)
     }
@@ -457,7 +464,7 @@ fn parse_line(input: &str) -> Result<Line> {
         .collect()
 }
 
-pub fn parse_lines<'a, T>(lines: T) -> Result<Vec<Line>>
+pub(crate) fn parse_lines<'a, T>(lines: T) -> Result<Vec<Line>>
 where
     T: Iterator<Item = &'a str>,
 {

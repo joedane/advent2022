@@ -3,6 +3,7 @@ use std::path::Path;
 
 mod d1;
 mod d14;
+mod d15;
 mod d2;
 mod d3;
 mod d4;
@@ -37,6 +38,7 @@ enum PuzzleDay {
     Day4,
     Day5,
     Day14,
+    Day15,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -49,6 +51,7 @@ fn main() -> anyhow::Result<()> {
         Some(PuzzleDay::Day4) => d4::get_runs(),
         Some(PuzzleDay::Day5) => d5::get_runs(),
         Some(PuzzleDay::Day14) => d14::get_runs(),
+        Some(PuzzleDay::Day14) => d15::get_runs(),
         _ => {
             println!("not found: {:?}", args.day);
             panic!()
