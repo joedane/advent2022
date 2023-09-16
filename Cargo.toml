@@ -2,6 +2,7 @@
 name = "advent2022"
 version = "0.1.0"
 edition = "2021"
+default-run = "advent2022"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,3 +21,10 @@ emath = "0.21"
 eframe = { version = "0.21", default-features = false, features = ["glow"] }
 clap = { version = "4.4.2", features = ["derive"] }
 
+[[bin]]
+name = "advent2022"
+path = "src/main.rs"
+
+[[bin]]
+name = "day14"
+path = "src/d14/main.rs"

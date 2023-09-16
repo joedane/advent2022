@@ -7,31 +7,6 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Cargo launch",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin"
-                ]
-            },
-            "args": []
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Cargo test",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib"
-                ]
-            },
-            "args": []
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
             "name": "Debug unit tests in library 'advent2022'",
             "cargo": {
                 "args": [
@@ -51,165 +26,34 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'day1'",
+            "name": "Debug executable 'advent2022'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=day1",
+                    "--bin=advent2022",
                     "--package=advent2022"
                 ],
                 "filter": {
-                    "name": "day1",
+                    "name": "advent2022",
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": ["day14"],
             "cwd": "${workspaceFolder}"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'day1'",
+            "name": "Debug unit tests in executable 'advent2022'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=day1",
+                    "--bin=advent2022",
                     "--package=advent2022"
                 ],
                 "filter": {
-                    "name": "day1",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug executable 'day2'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=day2",
-                    "--package=advent2022"
-                ],
-                "filter": {
-                    "name": "day2",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'day2'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=day2",
-                    "--package=advent2022"
-                ],
-                "filter": {
-                    "name": "day2",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'day7'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=day7",
-                    "--package=advent2022"
-                ],
-                "filter": {
-                    "name": "day7",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'day8'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=day8",
-                    "--package=advent2022"
-                ],
-                "filter": {
-                    "name": "day8",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'day9'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=day9",
-                    "--package=advent2022"
-                ],
-                "filter": {
-                    "name": "day9",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug executable 'day10'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=day10",
-                    "--package=advent2022"
-                ],
-                "filter": {
-                    "name": "day10",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'day14'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=day14",
-                    "--package=advent2022"
-                ],
-                "filter": {
-                    "name": "day14",
+                    "name": "advent2022",
                     "kind": "bin"
                 }
             },
@@ -234,5 +78,24 @@
             "args": [],
             "cwd": "${workspaceFolder}"
         },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'day14'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=day14",
+                    "--package=advent2022"
+                ],
+                "filter": {
+                    "name": "day14",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
     ]
 }

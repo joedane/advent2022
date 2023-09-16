@@ -1,8 +1,7 @@
 use crate::topo::{State, Topo};
 use crate::Coord;
 use egui::{
-    pos2, Align, Align2, Color32, Label, Layout, Painter, Rect, Response, ScrollArea, Sense,
-    Stroke, TextStyle,
+    pos2, Align, Align2, Color32, Label, Layout, Painter, Rect, ScrollArea, Stroke, TextStyle,
 };
 use emath::RectTransform;
 
@@ -11,22 +10,24 @@ pub struct App {
     cell_size: f32,
     border_size: f32,
     updates_per_second: u32,
+    spawn_rate: f64,
     last_updated: f64,
+    last_spawn: f64,
     running: bool,
-    current_grain: Option<crate::Coord>,
     current_pointer_pos: String,
 }
 
 impl App {
-    pub(crate) fn new(cc: &eframe::CreationContext<'_>, topo: Topo) -> App {
+    pub(crate) fn new(_cc: &eframe::CreationContext<'_>, topo: Topo) -> App {
         App {
             topo,
             cell_size: 15.0,
             border_size: 1.0,
             updates_per_second: 2,
+            spawn_rate: 0.0,
             last_updated: 0.0,
+            last_spawn: 0.0,
             running: true,
-            current_grain: None,
             current_pointer_pos: "(-, -)".to_string(),
         }
     }
@@ -43,14 +44,6 @@ impl App {
         self.topo.get_x_offset() as f32 * self.cell_size
     }
 
-    fn current_grain_or_new(&mut self) -> Coord {
-        let cg = self.current_grain.get_or_insert_with(|| {
-            let c = Coord::new(500, 0);
-            self.topo[c] = State::Sand;
-            c
-        });
-        *cg
-    }
     fn draw_grid(&self, painter: &Painter, xf: &RectTransform, viewport: Rect) {
         let stroke = Stroke::new(self.border_size / 3.0, Color32::RED);
         let stroke_bold = Stroke::new(self.border_size, Color32::RED);
@@ -118,27 +111,18 @@ impl App {
         )
     }
 
-    fn update_world(&mut self) {
-        use crate::topo::StepResult;
-
-        let cg = self.current_grain_or_new();
-
-        match self.topo.step(cg) {
-            StepResult::Moved(new_pos) => {
-                self.topo[cg] = State::Empty;
-                self.topo[new_pos] = State::Sand;
-                self.current_grain = Some(new_pos);
-            }
-            StepResult::Stopped => {
-                self.current_grain = None;
-            }
-            StepResult::Off => {
-                self.topo[cg] = State::Empty;
-                self.current_grain = None;
-            }
+    fn update_world(&mut self, try_drop: bool) {
+        if try_drop && !self.topo.drop_at(Coord::new(500, 0)) {
+            println!("SFSFFSF");
+            return;
+        }
+        let results = self.topo.step();
+        if results.len() == 0 {
+            println!("No results");
         }
     }
 }
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //        let (grid_width, grid_height) = (500u32, 500u32);
@@ -149,7 +133,7 @@ impl eframe::App for App {
 
         let now = ctx.input(|i| i.time);
         if self.running && now > self.last_updated + (1.0 / self.updates_per_second as f64) {
-            self.update_world();
+            self.update_world(false);
             self.last_updated = now; // what difference if I update here vs after painting?
         }
 
@@ -165,8 +149,9 @@ impl eframe::App for App {
                     if ui.button("Button 1").clicked() {
                         println!("Button 1");
                     }
-                    if ui.button("Button 2").clicked() {
-                        println!("Button 2");
+                    if ui.button("Drop").clicked() {
+                        self.topo.drop_at(Coord::new(500, 0));
+                        self.last_spawn = now;
                     }
                 })
             });
@@ -197,16 +182,13 @@ impl eframe::App for App {
 
                     ctx.input(|i| {
                         for e in &i.events {
-                            match e {
-                                egui::Event::PointerMoved(p) => {
-                                    let p = from_screen.transform_pos(*p);
-                                    self.current_pointer_pos = format!(
-                                        "({}, {})",
-                                        (p.x / self.cell_size).floor() as usize,
-                                        (p.y / self.cell_size).floor() as usize
-                                    );
-                                }
-                                _ => {}
+                            if let egui::Event::PointerMoved(p) = e {
+                                let p = from_screen.transform_pos(*p);
+                                self.current_pointer_pos = format!(
+                                    "({}, {})",
+                                    (p.x / self.cell_size).floor() as usize,
+                                    (p.y / self.cell_size).floor() as usize
+                                );
                             }
                         }
                     });

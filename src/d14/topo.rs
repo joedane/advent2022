@@ -1,7 +1,8 @@
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub(crate) struct Coord {
     pub(crate) x: usize,
     pub(crate) y: usize,
@@ -13,14 +14,6 @@ impl Coord {
     }
 }
 
-impl Default for Coord {
-    fn default() -> Self {
-        Self {
-            x: Default::default(),
-            y: Default::default(),
-        }
-    }
-}
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) struct Line {
     pub(crate) points: Vec<Coord>,
@@ -52,13 +45,6 @@ pub(crate) struct Bounds {
 }
 
 impl Bounds {
-    fn new(ul: (usize, usize), br: (usize, usize)) -> Self {
-        Self {
-            upper_left: Coord::new(ul.0, ul.1),
-            lower_right: Coord::new(br.0, br.1),
-        }
-    }
-
     fn new_from_coord(c: Coord) -> Self {
         Self {
             upper_left: c,
@@ -84,6 +70,19 @@ impl Bounds {
             std::cmp::max(self.lower_right.y, c.y),
         );
     }
+
+    fn maybe_expand(&self, ul: Coord, lr: Coord) -> Self {
+        Self {
+            upper_left: Coord::new(
+                std::cmp::min(self.upper_left.x, ul.x),
+                std::cmp::max(self.upper_left.y, ul.y),
+            ),
+            lower_right: Coord::new(
+                std::cmp::max(self.lower_right.x, lr.x),
+                std::cmp::min(self.lower_right.y, lr.y),
+            ),
+        }
+    }
 }
 
 impl From<Coord> for Bounds {
@@ -91,16 +90,17 @@ impl From<Coord> for Bounds {
         Bounds::new_from_coord(c)
     }
 }
-use colored::Colorize;
 pub(crate) struct Topo {
     data: HashMap<Coord, State>,
     bounds: Bounds,
+    active: Vec<Coord>,
+    floor: bool,
 }
 
 pub(crate) enum StepResult {
-    Moved(Coord),
-    Stopped,
-    Off,
+    Moved(Coord, Coord),
+    Stopped(Coord),
+    Off(Coord),
 }
 
 /*
@@ -136,24 +136,42 @@ impl Iterator for TopoCoordIterator {
 impl FromIterator<Coord> for Topo {
     fn from_iter<I: IntoIterator<Item = Coord>>(iter: I) -> Self {
         let mut data: HashMap<Coord, State> = Default::default();
-        let mut bounds = Bounds::new_from_coord(Coord::new(0, 0));
+        let mut a_coord: Option<Coord> = None;
+
         for c in iter {
+            if a_coord.is_none() {
+                a_coord.replace(c);
+            }
             data.insert(c, State::Wall);
-            bounds.update(c);
         }
-        Topo { data, bounds }
+        if a_coord.is_none() {
+            panic!();
+        }
+        let a_coord = a_coord.unwrap();
+        let mut bounds = Bounds::new_from_coord(a_coord);
+        for c in data.keys() {
+            bounds.update(*c);
+        }
+        Topo {
+            data,
+            bounds,
+            active: vec![],
+            floor: false,
+        }
     }
 }
 
 impl std::fmt::Debug for Topo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
-        /*
+        use colored::Colorize;
         colored::control::set_override(true);
+
         let Bounds {
             upper_left: ul,
             lower_right: lr,
-        } = self.maybe_expand(Bounds::new((0, 0), (20, 20)));
+        } = self
+            .bounds
+            .maybe_expand(Coord::new(0, 0), Coord::new(20, 20));
 
         for y in 0..(lr.y + 1) {
             for x in ul.x..(lr.x + 1) {
@@ -172,7 +190,6 @@ impl std::fmt::Debug for Topo {
             f.write_str("\n")?;
         }
         Ok(())
-        */
     }
 }
 
@@ -199,22 +216,9 @@ impl Topo {
         self.bounds.upper_left.x
     }
 
-    /*
-    pub(crate) fn maybe_expand(&self, b: Bounds) -> Bounds {
-        let sb = self.bounds;
-        self.bounds = Bounds {
-            upper_left: Coord::new(
-                std::cmp::min(sb.upper_left.x, b.upper_left.x),
-                std::cmp::max(sb.upper_left.y, b.upper_left.y),
-            ),
-            lower_right: Coord::new(
-                std::cmp::max(sb.lower_right.x, b.lower_right.x),
-                std::cmp::min(sb.lower_right.y, b.lower_right.y),
-            ),
-        };
-        self.bounds
+    pub(crate) fn with_floor(&mut self) {
+        self.floor = true;
     }
-    */
 
     pub(crate) fn from_lines(lines: Vec<Line>) -> Self {
         let mut data: HashMap<Coord, State> = Default::default();
@@ -278,7 +282,12 @@ impl Topo {
                 }
             }
         }
-        Topo { data, bounds }
+        Topo {
+            data,
+            bounds,
+            active: vec![],
+            floor: false,
+        }
     }
 
     pub(crate) fn coord_iter(&self) -> impl Iterator<Item = (Coord, State)> + '_ {
@@ -286,33 +295,56 @@ impl Topo {
             .iter()
             .map(|(c_ref, s_ref)| (c_ref.to_owned(), s_ref.to_owned()))
     }
-    pub(crate) fn drop_grain(&self, p: Coord) -> Option<Coord> {
-        let mut c = p;
-        loop {
-            match self.step(c) {
-                StepResult::Off => return None,
-                StepResult::Stopped => return Some(c),
-                StepResult::Moved(next_step) => {
-                    c = next_step;
-                }
-            }
+
+    pub(crate) fn drop_at(&mut self, c: Coord) -> bool {
+        if matches!(self[c], State::Empty) {
+            self[c] = State::Sand;
+            self.active.push(c);
+            true
+        } else {
+            false
         }
     }
 
     /**
-     * to where will the grain at Coord p next move?
-     * This does not update the model.  Panic there's not a graid
-     * at coord p.
+     * update the model to reflect one time step.
+     * might be nice if we didn't allocate here.
      */
-    pub(crate) fn step(&self, p: Coord) -> StepResult {
-        if !matches!(self[p], State::Sand) {
-            panic!("no grain currently at Coord {:?}", p);
+    pub fn step(&mut self) -> Vec<StepResult> {
+        let mut rs = vec![];
+        let actives = std::mem::take(&mut self.active);
+
+        println!("{:?}", self);
+        panic!();
+        for c in actives.into_iter() {
+            let result = self.next_pos(c);
+            if let StepResult::Moved(from, to) = result {
+                self[from] = State::Empty;
+                self[to] = State::Sand;
+                self.active.push(to);
+            }
+            rs.push(result);
         }
+        rs
+    }
+
+    fn next_pos(&self, p: Coord) -> StepResult {
         let current_bound = self.bounds;
 
         if p.y >= current_bound.lower_right.y {
-            // fall off the bottom
-            return StepResult::Off;
+            if self.floor {
+                if p.y == current_bound.lower_right.y {
+                    return StepResult::Moved(p, Coord::new(p.x, p.y + 1));
+                } else {
+                    if p.y + 1 > current_bound.lower_right.y {
+                        panic!()
+                    }
+                    return StepResult::Stopped(p);
+                }
+            } else {
+                // fall off the bottom
+                return StepResult::Off(p);
+            }
         }
         let mut c: Coord = Default::default();
 
@@ -320,32 +352,82 @@ impl Topo {
         c.y = p.y + 1;
         if let State::Empty = self[c] {
             // move down
-            return StepResult::Moved(c);
+            return StepResult::Moved(p, c);
         }
 
         // diag left?
         if p.x <= current_bound.upper_left.x {
-            return StepResult::Off;
+            return StepResult::Off(p);
         }
         c.x = p.x - 1;
         c.y = p.y + 1;
         if let State::Empty = self[c] {
-            return StepResult::Moved(c);
+            return StepResult::Moved(p, c);
         }
 
         // diag right?
         if p.x + 1 >= current_bound.lower_right.x {
-            return StepResult::Off;
+            return StepResult::Off(p);
         }
         c.x = p.x + 1;
         c.y = p.y + 1;
         if let State::Empty = self[c] {
-            return StepResult::Moved(c);
+            return StepResult::Moved(p, c);
         }
-        StepResult::Stopped
+        StepResult::Stopped(p)
     }
-}
 
+    /*
+        fn step_coord(&mut self, p: Coord) -> StepResult {
+            if !matches!(self[p], State::Sand) {
+                panic!("no grain currently at Coord {:?}", p);
+            }
+            let current_bound = self.bounds;
+
+            if p.y >= current_bound.lower_right.y {
+                if self.floor {
+                    if p.y == current_bound.lower_right.y {
+                        return StepResult::Moved(Coord::new(p.x, p.y + 1));
+                    } else {
+                        return StepResult::Stopped;
+                    }
+                } else {
+                    // fall off the bottom
+                    return StepResult::Off;
+                }
+            }
+            let mut c: Coord = Default::default();
+
+            c.x = p.x;
+            c.y = p.y + 1;
+            if let State::Empty = self[c] {
+                // move down
+                return StepResult::Moved(c);
+            }
+
+            // diag left?
+            if p.x <= current_bound.upper_left.x {
+                return StepResult::Off;
+            }
+            c.x = p.x - 1;
+            c.y = p.y + 1;
+            if let State::Empty = self[c] {
+                return StepResult::Moved(c);
+            }
+
+            // diag right?
+            if p.x + 1 >= current_bound.lower_right.x {
+                return StepResult::Off;
+            }
+            c.x = p.x + 1;
+            c.y = p.y + 1;
+            if let State::Empty = self[c] {
+                return StepResult::Moved(c);
+            }
+            StepResult::Stopped
+        }
+    */
+}
 impl std::ops::Index<Coord> for Topo {
     type Output = State;
 
@@ -358,5 +440,62 @@ impl std::ops::IndexMut<Coord> for Topo {
         let r = self.data.entry(index).or_insert(State::Empty);
         self.bounds.update(index);
         r
+    }
+}
+
+fn parse_line(input: &str) -> Result<Line> {
+    input
+        .split("->")
+        .map(|s| s.trim())
+        .map(|s| match s.find(',') {
+            Some(i) => Ok(Coord {
+                x: s[0..i].parse().unwrap(),
+                y: s[i + 1..].parse().unwrap(),
+            }),
+            None => Err(anyhow!("bad coordinate: {s}")),
+        })
+        .collect()
+}
+
+pub fn parse_lines<'a, T>(lines: T) -> Result<Vec<Line>>
+where
+    T: Iterator<Item = &'a str>,
+{
+    lines
+        .into_iter()
+        .map(|s| s.trim())
+        .map(|l| parse_line(l))
+        .collect::<Result<Vec<Line>, _>>()
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[test]
+    fn test_parse() {
+        let line = parse_line("508,146 -> 513,146").unwrap();
+        assert_eq!(
+            line,
+            Line {
+                points: vec![Coord::new(508, 146), Coord::new(513, 146)]
+            }
+        );
+    }
+
+    #[test]
+    fn test_print() {
+        let input = "498,4 -> 498,6 -> 496,6
+            503,4 -> 502,4 -> 502,9 -> 494,9";
+        let topo = Topo::from_lines(parse_lines(input.lines()).unwrap());
+        println!("{topo:?}");
+    }
+
+    #[test]
+    fn test_print_large() {
+        let input = include_str!("input.txt");
+        let topo = Topo::from_lines(parse_lines(input.lines()).unwrap());
+        println!("{topo:?}");
     }
 }
