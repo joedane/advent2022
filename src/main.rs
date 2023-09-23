@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
         Some(PuzzleDay::Day4) => d4::get_runs(),
         Some(PuzzleDay::Day5) => d5::get_runs(),
         Some(PuzzleDay::Day14) => d14::get_runs(),
-        Some(PuzzleDay::Day14) => d15::get_runs(),
+        Some(PuzzleDay::Day15) => d15::get_runs(),
         _ => {
             println!("not found: {:?}", args.day);
             panic!()
