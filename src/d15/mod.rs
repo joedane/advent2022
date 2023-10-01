@@ -3,7 +3,7 @@ use anyhow::Result;
 use itertools::Itertools;
 use regex::Regex;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Interval {
@@ -241,7 +241,7 @@ impl std::str::FromStr for Sensor {
     }
 }
 
-fn span_for_line(sensors: &Vec<Sensor>, beacons: &HashSet<Coord>, the_row: i64) -> Intervals {
+fn span_for_line(sensors: &Vec<Sensor>, _beacons: &HashSet<Coord>, the_row: i64) -> Intervals {
     let mut intervals = Intervals::new();
 
     for s in sensors.iter() {

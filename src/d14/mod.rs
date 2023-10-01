@@ -1,4 +1,4 @@
-use crate::d14::topo::{parse_lines, Coord, State, StepResult, Topo};
+use crate::d14::topo::{parse_lines, Coord, StepResult, Topo};
 use crate::PuzzleRun;
 
 mod topo;
@@ -26,14 +26,14 @@ impl PuzzleRun for Part1 {
                 panic!();
             }
             match results[0] {
-                StepResult::Moved(from, to) => {}
-                StepResult::Stopped(p) => {
+                StepResult::Moved(_from, _to) => {}
+                StepResult::Stopped(_p) => {
                     if !topo.drop_at(Coord::new(500, 0)) {
                         panic!()
                     }
                     grain_count += 1;
                 }
-                StepResult::Off(p) => {
+                StepResult::Off(_p) => {
                     return format!("{}", grain_count);
                 }
             }
@@ -58,14 +58,14 @@ impl PuzzleRun for Part2 {
                 panic!();
             }
             match results[0] {
-                StepResult::Moved(from, to) => {}
-                StepResult::Stopped(p) => {
+                StepResult::Moved(_from, _to) => {}
+                StepResult::Stopped(_p) => {
                     if !topo.drop_at(Coord::new(500, 0)) {
                         return format!("{}", grain_count);
                     }
                     grain_count += 1;
                 }
-                StepResult::Off(p) => {
+                StepResult::Off(_p) => {
                     panic!("This should never happen");
                 }
             }
