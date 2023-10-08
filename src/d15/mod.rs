@@ -1,9 +1,8 @@
 use crate::PuzzleRun;
 use anyhow::Result;
-use itertools::Itertools;
 use regex::Regex;
 
-use std::collections::{HashSet};
+use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Interval {

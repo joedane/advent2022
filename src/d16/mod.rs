@@ -9,6 +9,7 @@ pub(crate) fn get_runs() -> Vec<Box<dyn PuzzleRun>> {
 struct Valve {
     name: String,
     rate: u8,
+    duration: u8,
     tunnels: Vec<String>,
 }
 
@@ -17,6 +18,7 @@ impl Valve {
         Self {
             name,
             rate,
+            duration: 0,
             tunnels,
         }
     }
@@ -51,6 +53,24 @@ impl core::fmt::Display for ValveParseError {
         write!(f, "{}", self.msg)
     }
 }
+
+struct WorldState {
+    valves: Vec<Valve>,
+    at: String,
+    score: u32,
+}
+
+impl WorldState {
+
+    fn init<T: Iterator<Item = Result<String, std::io::Error>>>(input: T) -> Result<Self, ValveParseError> {
+        let valves: Vec<Valve> = input.map(|s| s.and_then(|s| s.parse::<Valve>())).collect();
+        Ok(Self {
+            valves,
+            at: "AA".to_string(),
+            score: 0
+        })
+    }
+}
 struct Part1;
 
 fn test_data() -> &'static str {
@@ -71,6 +91,7 @@ impl PuzzleRun for Part1 {
     }
 
     fn run(&self, input: &str) -> String {
+        let state: = input.lines().map(|s| s.parse::<Value>())
         for line in input.lines() {
             match line.parse::<Valve>() {
                 Ok(v) => {
