@@ -1,20 +1,21 @@
 use crate::PuzzleRun;
 use regex::Regex;
+use std::collections::HashMap;
 
 pub(crate) fn get_runs() -> Vec<Box<dyn PuzzleRun>> {
     vec![Box::new(Part1)]
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Valve {
     name: String,
-    rate: u8,
-    duration: u8,
+    rate: u32,
+    duration: u32,
     tunnels: Vec<String>,
 }
 
 impl Valve {
-    fn new(name: String, rate: u8, tunnels: Vec<String>) -> Self {
+    fn new(name: String, rate: u32, tunnels: Vec<String>) -> Self {
         Self {
             name,
             rate,
@@ -24,6 +25,7 @@ impl Valve {
     }
 }
 
+#[derive(Debug)]
 struct ValveParseError {
     msg: String,
 }
@@ -38,8 +40,8 @@ impl std::str::FromStr for Valve {
         match re.captures(s).map(|c| c.extract()) {
             Some((_, [name, rate, tunnels])) => Ok(Valve::new(
                 name.into(),
-                u8::from_str(rate).unwrap(),
-                tunnels.split(',').map(|s| s.to_owned()).collect(),
+                u32::from_str(rate).unwrap(),
+                tunnels.split(',').map(|s| s.trim().to_owned()).collect(),
             )),
             None => Err(ValveParseError {
                 msg: format!("failed to parse: {}", s),
@@ -54,21 +56,78 @@ impl core::fmt::Display for ValveParseError {
     }
 }
 
+#[derive(Clone, Debug)]
 struct WorldState {
-    valves: Vec<Valve>,
+    valves: HashMap<String, Valve>,
     at: String,
-    score: u32,
+    time_remaining: u32,
+}
+
+struct NextStateIter<'a> {
+    base: &'a WorldState,
+}
+
+impl<'a> Iterator for NextStateIter<'a> {
+    type Item = WorldState;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.base.time_remaining == 0 {
+            println!("from {} END", self.base.at);
+            return None;
+        }
+        let mut n = self.base.clone();
+        n.time_remaining -= 1;
+        let at = n.valves.get_mut(&n.at).unwrap();
+        if at.duration == 0 && at.rate > 0 {
+            at.duration = n.time_remaining;
+            println!("from {} set valuve", self.base.at);
+            return Some(n);
+        } else if !at.tunnels.is_empty() {
+            let t = at.tunnels.pop().unwrap();
+            n.at = t;
+            println!("from {} move to {}", self.base.at, n.at);
+            return Some(n);
+        } else {
+            println!("from {} no children", self.base.at);
+            return None;
+        }
+    }
 }
 
 impl WorldState {
-
-    fn init<T: Iterator<Item = Result<String, std::io::Error>>>(input: T) -> Result<Self, ValveParseError> {
-        let valves: Vec<Valve> = input.map(|s| s.and_then(|s| s.parse::<Valve>())).collect();
+    fn init<'a, T: Iterator<Item = &'a str>>(input: T) -> Result<Self, ValveParseError> {
+        let valves = input
+            .map(|s| {
+                let v = s.parse::<Valve>()?;
+                Ok((v.name.clone(), v))
+            })
+            .collect::<Result<HashMap<String, Valve>, ValveParseError>>()?;
         Ok(Self {
             valves,
             at: "AA".to_string(),
-            score: 0
+            time_remaining: 30,
         })
+    }
+
+    fn next_state_iter<'a>(&'a self) -> NextStateIter<'a> {
+        NextStateIter { base: self }
+    }
+
+    fn total_flow(&self) -> u32 {
+        self.valves.values().map(|v| v.duration * v.rate).sum()
+    }
+
+    fn best(&self) -> WorldState {
+        let mut best_value = std::u32::MIN;
+        let mut best_state: Option<WorldState> = None;
+        for s in self.next_state_iter() {
+            let this_best = s.best();
+            if this_best.total_flow() > best_value {
+                best_value = this_best.total_flow();
+                best_state = Some(this_best);
+            }
+        }
+        best_state.unwrap_or(self.clone())
     }
 }
 struct Part1;
@@ -85,24 +144,15 @@ fn test_data() -> &'static str {
     Valve II has flow rate=0; tunnels lead to valves AA, JJ
     Valve JJ has flow rate=21; tunnel leads to valve II"
 }
+
 impl PuzzleRun for Part1 {
     fn input_data(&self) -> anyhow::Result<&str> {
         Ok(test_data())
     }
 
     fn run(&self, input: &str) -> String {
-        let state: = input.lines().map(|s| s.parse::<Value>())
-        for line in input.lines() {
-            match line.parse::<Valve>() {
-                Ok(v) => {
-                    println!("Parsed {:?}", v)
-                }
-                Err(e) => {
-                    println!("{}", e)
-                }
-            }
-        }
-        "OK".to_string()
+        let state = WorldState::init(input.lines()).unwrap();
+        format!("{}", state.best().total_flow())
     }
 }
 
@@ -128,5 +178,23 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_world_iter() {
+        let ws = WorldState::init(test_data().lines()).unwrap();
+        let mut wsi = ws.next_state_iter();
+        let next = wsi.next();
+        assert!(next.is_some());
+        if let Some(ws) = next {
+            assert_eq!(ws.time_remaining, 29);
+            assert_eq!(ws.at, "BB");
+        }
+    }
+
+    #[test]
+    fn test_part1() {
+        let p1 = Part1;
+        p1.run(p1.input_data().unwrap());
     }
 }
