@@ -63,11 +63,25 @@ struct WorldState {
     time_remaining: u32,
 }
 
-struct NextStateIter<'a> {
-    base: &'a WorldState,
+struct NextStateIter {
+    base: WorldState,
+    checked_my_valve: bool,
+    tunnels: Vec<String>,
 }
 
-impl<'a> Iterator for NextStateIter<'a> {
+impl NextStateIter {
+    fn new(base: &WorldState) -> Self {
+        let tunnels = base.valves.get(&base.at).unwrap().tunnels.clone();
+
+        Self {
+            base: base.clone(),
+            checked_my_valve: false,
+            tunnels,
+        }
+    }
+}
+
+impl Iterator for NextStateIter {
     type Item = WorldState;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -75,20 +89,27 @@ impl<'a> Iterator for NextStateIter<'a> {
             println!("from {} END", self.base.at);
             return None;
         }
+
         let mut n = self.base.clone();
         n.time_remaining -= 1;
-        let at = n.valves.get_mut(&n.at).unwrap();
-        if at.duration == 0 && at.rate > 0 {
-            at.duration = n.time_remaining;
-            println!("from {} set valuve", self.base.at);
-            return Some(n);
-        } else if !at.tunnels.is_empty() {
-            let t = at.tunnels.pop().unwrap();
+        if !self.checked_my_valve {
+            self.checked_my_valve = true;
+            let at = n.valves.get_mut(&n.at).unwrap();
+            if at.duration == 0 && at.rate > 0 {
+                at.duration = n.time_remaining;
+                //println!("from {} set valve, duration {}", self.base.at, at.duration);
+                return Some(n);
+            }
+        }
+
+        if !self.tunnels.is_empty() {
+            let t = self.tunnels.pop().unwrap();
             n.at = t;
-            println!("from {} move to {}", self.base.at, n.at);
+            n.remove_tunnel(&self.base.at, &n.at.clone());
+            //println!("from {} move to {}", self.base.at, n.at);
             return Some(n);
         } else {
-            println!("from {} no children", self.base.at);
+            //println!("from {} no children", self.base.at);
             return None;
         }
     }
@@ -109,25 +130,59 @@ impl WorldState {
         })
     }
 
-    fn next_state_iter<'a>(&'a self) -> NextStateIter<'a> {
-        NextStateIter { base: self }
+    fn next_state_iter(&self) -> NextStateIter {
+        NextStateIter::new(self)
     }
 
     fn total_flow(&self) -> u32 {
         self.valves.values().map(|v| v.duration * v.rate).sum()
     }
 
-    fn best(&self) -> WorldState {
+    fn remove_tunnel(&mut self, from: &str, to: &str) {
+        let v = self.valves.get_mut(from).unwrap();
+        v.tunnels.retain(|t| t != to);
+    }
+    fn print_debug(&self, level: usize) {
+        let mut s = String::new();
+        for i in 0..level {
+            s.push(' ');
+        }
+        s.push_str("WS at: ");
+        s.push_str(&self.at);
+        s.push_str(" [");
+        s.push_str(&format!("{:p}", self));
+        s.push_str("] (rem: ");
+        s.push_str(&format!("{}", self.time_remaining));
+        s.push_str(") ");
+        for v in self.valves.values() {
+            s.push_str(&v.name);
+            s.push_str(": [");
+            for t in &v.tunnels {
+                s.push_str(&t);
+                s.push(',');
+            }
+            s.push_str("] ");
+        }
+        println!("{}", s);
+    }
+
+    fn best(&self, level: usize) -> Option<WorldState> {
         let mut best_value = std::u32::MIN;
         let mut best_state: Option<WorldState> = None;
+        //self.print_debug(level);
+        //println!("[{:p}] {:?}", self, self);
         for s in self.next_state_iter() {
-            let this_best = s.best();
-            if this_best.total_flow() > best_value {
-                best_value = this_best.total_flow();
-                best_state = Some(this_best);
+            if let Some(this_best) = s.best(level + 1) {
+                let total_flow = this_best.total_flow();
+                //println!("BEST: ");
+                //this_best.print_debug(level);
+                if total_flow > best_value {
+                    best_value = total_flow;
+                    best_state = Some(this_best);
+                }
             }
         }
-        best_state.unwrap_or(self.clone())
+        best_state
     }
 }
 struct Part1;
@@ -145,6 +200,12 @@ fn test_data() -> &'static str {
     Valve JJ has flow rate=21; tunnel leads to valve II"
 }
 
+fn simple_test_data() -> &'static str {
+    "Valve AA has flow rate=0; tunnels lead to valves BB, CC
+    Valve BB has flow rate=13; tunnel leads to valves CC
+    Valve CC has flow rate=2; tunnel leads to valve AA"
+}
+
 impl PuzzleRun for Part1 {
     fn input_data(&self) -> anyhow::Result<&str> {
         Ok(test_data())
@@ -152,7 +213,7 @@ impl PuzzleRun for Part1 {
 
     fn run(&self, input: &str) -> String {
         let state = WorldState::init(input.lines()).unwrap();
-        format!("{}", state.best().total_flow())
+        format!("{}", state.best(0).unwrap().total_flow())
     }
 }
 
