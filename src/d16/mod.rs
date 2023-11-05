@@ -6,6 +6,8 @@ pub(crate) fn get_runs() -> Vec<Box<dyn PuzzleRun>> {
     vec![Box::new(Part1)]
 }
 
+const TOTAL_TIME: u32 = 30;
+
 #[derive(Debug, Clone)]
 struct Valve {
     name: String,
@@ -63,6 +65,84 @@ struct WorldState {
     time_remaining: u32,
 }
 
+#[derive(Debug)]
+enum PathStep {
+    OpenValve {
+        total_flow: u32,
+        time_remaining: u32,
+        duration: u32,
+        rate: u32,
+        at: String,
+        next: Box<PathStep>,
+    },
+    StepTo {
+        total_flow: u32,
+        time_remaining: u32,
+        step_to: String,
+        next: Box<PathStep>,
+    },
+    Complete(u32),
+}
+
+impl PathStep {
+    fn total_flow(&self) -> u32 {
+        match self {
+            PathStep::Complete(v) => *v,
+            PathStep::StepTo {
+                total_flow,
+                time_remaining: _,
+                step_to: _,
+                next: _,
+            } => *total_flow,
+            PathStep::OpenValve {
+                total_flow,
+                time_remaining: _,
+                duration: _,
+                rate: _,
+                at: _,
+                next: _,
+            } => *total_flow,
+        }
+    }
+
+    fn dump(&self) {
+        match self {
+            PathStep::Complete(v) => {
+                println!("completed with total flow {}", v);
+            }
+            PathStep::StepTo {
+                total_flow,
+                time_remaining,
+                step_to,
+                next,
+            } => {
+                println!(
+                    "at time {} move to {}",
+                    TOTAL_TIME - time_remaining + 1,
+                    step_to
+                );
+                next.dump();
+            }
+            PathStep::OpenValve {
+                total_flow,
+                time_remaining,
+                duration,
+                rate,
+                at,
+                next,
+            } => {
+                println!(
+                    "at time {} opened valve at {} rate {} for duration {}",
+                    TOTAL_TIME - time_remaining + 1,
+                    at,
+                    rate,
+                    duration
+                );
+                next.dump();
+            }
+        }
+    }
+}
 struct NextStateIter {
     base: WorldState,
     checked_my_valve: bool,
@@ -134,8 +214,35 @@ impl WorldState {
         NextStateIter::new(self)
     }
 
+    fn turn_on_current_valve(&self) -> WorldState {
+        let mut new_w = self.clone();
+        let v = new_w.valves.get_mut(&new_w.at).unwrap();
+        if v.duration > 0 {
+            panic!();
+        }
+        v.duration = self.time_remaining - 1;
+        new_w.time_remaining -= 1;
+        new_w
+    }
+
+    fn take_tunnel(&self, to: &str) -> WorldState {
+        let mut new_w = self.clone();
+        let mut v = new_w.valves.get_mut(&new_w.at).unwrap();
+        if !v.tunnels.iter().any(|x| x == to) {
+            panic!();
+        }
+        v.tunnels.retain(|t| t != to);
+        new_w.time_remaining -= 1;
+        new_w.at = to.to_string();
+        new_w
+    }
+
     fn total_flow(&self) -> u32 {
         self.valves.values().map(|v| v.duration * v.rate).sum()
+    }
+
+    fn is_complete(&self) -> bool {
+        self.valves.values().all(|v| v.rate == 0 || v.duration > 0)
     }
 
     fn remove_tunnel(&mut self, from: &str, to: &str) {
@@ -166,23 +273,59 @@ impl WorldState {
         println!("{}", s);
     }
 
-    fn best(&self, level: usize) -> Option<WorldState> {
+    fn best(&self, level: usize) -> Option<PathStep> {
+        if self.time_remaining == 0 {
+            panic!();
+        }
+
         let mut best_value = std::u32::MIN;
-        let mut best_state: Option<WorldState> = None;
+        let mut best_step: Option<PathStep> = None;
+
+        let this_valve = self.valves.get(&self.at).unwrap();
+        if this_valve.duration == 0 && this_valve.rate > 0 {
+            let next = self.turn_on_current_valve();
+            if let Some(step) = next.best(level + 1) {
+                let v = next.valves.get(&self.at).unwrap();
+                best_value = step.total_flow();
+                best_step = Some(PathStep::OpenValve {
+                    total_flow: step.total_flow(),
+                    time_remaining: self.time_remaining,
+                    rate: v.rate,
+                    duration: v.duration,
+                    at: self.at.clone(),
+                    next: Box::new(step),
+                });
+            }
+        }
+
         //self.print_debug(level);
         //println!("[{:p}] {:?}", self, self);
-        for s in self.next_state_iter() {
-            if let Some(this_best) = s.best(level + 1) {
-                let total_flow = this_best.total_flow();
-                //println!("BEST: ");
-                //this_best.print_debug(level);
-                if total_flow > best_value {
-                    best_value = total_flow;
-                    best_state = Some(this_best);
+        for t in &this_valve.tunnels[..] {
+            let next = self.take_tunnel(t);
+            if let Some(step) = next.best(level + 1) {
+                if level == 2 && t == "CC" {
+                    step.dump();
+                }
+                let this_flow = step.total_flow();
+                if this_flow > best_value {
+                    best_step.replace(PathStep::StepTo {
+                        total_flow: step.total_flow(),
+                        time_remaining: self.time_remaining,
+                        step_to: t.clone(),
+                        next: Box::new(step),
+                    });
+                    best_value = this_flow;
                 }
             }
         }
-        best_state
+
+        if best_step.is_some() {
+            best_step
+        } else if self.is_complete() {
+            Some(PathStep::Complete(self.total_flow()))
+        } else {
+            None
+        }
     }
 }
 struct Part1;
@@ -213,7 +356,9 @@ impl PuzzleRun for Part1 {
 
     fn run(&self, input: &str) -> String {
         let state = WorldState::init(input.lines()).unwrap();
-        format!("{}", state.best(0).unwrap().total_flow())
+        let best = state.best(0).unwrap();
+        best.dump();
+        format!("{}", best.total_flow())
     }
 }
 
