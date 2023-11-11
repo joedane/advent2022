@@ -143,57 +143,6 @@ impl PathStep {
         }
     }
 }
-struct NextStateIter {
-    base: WorldState,
-    checked_my_valve: bool,
-    tunnels: Vec<String>,
-}
-
-impl NextStateIter {
-    fn new(base: &WorldState) -> Self {
-        let tunnels = base.valves.get(&base.at).unwrap().tunnels.clone();
-
-        Self {
-            base: base.clone(),
-            checked_my_valve: false,
-            tunnels,
-        }
-    }
-}
-
-impl Iterator for NextStateIter {
-    type Item = WorldState;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.base.time_remaining == 0 {
-            println!("from {} END", self.base.at);
-            return None;
-        }
-
-        let mut n = self.base.clone();
-        n.time_remaining -= 1;
-        if !self.checked_my_valve {
-            self.checked_my_valve = true;
-            let at = n.valves.get_mut(&n.at).unwrap();
-            if at.duration == 0 && at.rate > 0 {
-                at.duration = n.time_remaining;
-                //println!("from {} set valve, duration {}", self.base.at, at.duration);
-                return Some(n);
-            }
-        }
-
-        if !self.tunnels.is_empty() {
-            let t = self.tunnels.pop().unwrap();
-            n.at = t;
-            n.remove_tunnel(&self.base.at, &n.at.clone());
-            //println!("from {} move to {}", self.base.at, n.at);
-            return Some(n);
-        } else {
-            //println!("from {} no children", self.base.at);
-            return None;
-        }
-    }
-}
 
 impl WorldState {
     fn init<'a, T: Iterator<Item = &'a str>>(input: T) -> Result<Self, ValveParseError> {
@@ -208,10 +157,6 @@ impl WorldState {
             at: "AA".to_string(),
             time_remaining: 30,
         })
-    }
-
-    fn next_state_iter(&self) -> NextStateIter {
-        NextStateIter::new(self)
     }
 
     fn turn_on_current_valve(&self) -> WorldState {
@@ -231,7 +176,6 @@ impl WorldState {
         if !v.tunnels.iter().any(|x| x == to) {
             panic!();
         }
-        v.tunnels.retain(|t| t != to);
         new_w.time_remaining -= 1;
         new_w.at = to.to_string();
         new_w
@@ -245,10 +189,6 @@ impl WorldState {
         self.valves.values().all(|v| v.rate == 0 || v.duration > 0)
     }
 
-    fn remove_tunnel(&mut self, from: &str, to: &str) {
-        let v = self.valves.get_mut(from).unwrap();
-        v.tunnels.retain(|t| t != to);
-    }
     fn print_debug(&self, level: usize) {
         let mut s = String::new();
         for i in 0..level {
@@ -275,7 +215,11 @@ impl WorldState {
 
     fn best(&self, level: usize) -> Option<PathStep> {
         if self.time_remaining == 0 {
-            panic!();
+            return if self.is_complete() {
+                Some(PathStep::Complete(self.total_flow()))
+            } else {
+                None
+            };
         }
 
         let mut best_value = std::u32::MIN;
@@ -303,9 +247,6 @@ impl WorldState {
         for t in &this_valve.tunnels[..] {
             let next = self.take_tunnel(t);
             if let Some(step) = next.best(level + 1) {
-                if level == 2 && t == "CC" {
-                    step.dump();
-                }
                 let this_flow = step.total_flow();
                 if this_flow > best_value {
                     best_step.replace(PathStep::StepTo {
@@ -383,18 +324,6 @@ mod test {
                     println!("FAIL: {}", l);
                 }
             }
-        }
-    }
-
-    #[test]
-    fn test_world_iter() {
-        let ws = WorldState::init(test_data().lines()).unwrap();
-        let mut wsi = ws.next_state_iter();
-        let next = wsi.next();
-        assert!(next.is_some());
-        if let Some(ws) = next {
-            assert_eq!(ws.time_remaining, 29);
-            assert_eq!(ws.at, "BB");
         }
     }
 
