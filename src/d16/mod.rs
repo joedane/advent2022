@@ -1,4 +1,8 @@
 use crate::PuzzleRun;
+use petgraph::{
+    graph::{Graph, NodeIndex, UnGraph},
+    IntoWeightedEdge,
+};
 use regex::Regex;
 use std::collections::HashMap;
 
@@ -268,7 +272,19 @@ impl WorldState {
             None
         }
     }
+
+    fn to_graph(&self) -> UnGraph<&str, ()> {
+        /*
+        UnGraph::<&str, ()>::from_edges(
+            self.valves
+                .values()
+                .flat_map(|v| v.tunnels.iter().map(|t| (v.name.as_str(), t.as_str()))),
+        )
+        */
+        todo!()
+    }
 }
+
 struct Part1;
 
 fn test_data() -> &'static str {
@@ -290,6 +306,10 @@ fn simple_test_data() -> &'static str {
     Valve CC has flow rate=2; tunnel leads to valve AA"
 }
 
+fn vec_set(v: &mut Vec<u64>, row_size: usize, i: usize, j: usize, value: u64) {
+    v[i * row_size + j] = value;
+}
+
 impl PuzzleRun for Part1 {
     fn input_data(&self) -> anyhow::Result<&str> {
         Ok(test_data())
@@ -297,10 +317,37 @@ impl PuzzleRun for Part1 {
 
     fn run(&self, input: &str) -> String {
         let state = WorldState::init(input.lines()).unwrap();
-        let best = state.best(0).unwrap();
-        best.dump();
-        format!("{}", best.total_flow())
+        let mut graph = Graph::<&str, ()>::new();
+
+        let nodes: HashMap<&str, NodeIndex<_>> = state
+            .valves
+            .keys()
+            .map(|s| (s.as_str(), graph.add_node(s)))
+            .collect();
+
+        let edges: Vec<(NodeIndex<_>, NodeIndex<_>)> = nodes
+            .iter()
+            .flat_map(|(&id, &from_node)| {
+                let nodes = &nodes;
+                state
+                    .valves
+                    .get(id)
+                    .unwrap()
+                    .tunnels
+                    .iter()
+                    .map(move |t| (from_node, *nodes.get(t.as_str()).unwrap()))
+                //                    .map(move |t| (from_node, map_edge(t.as_str(), nodes)))
+            })
+            .collect();
+        graph.extend_with_edges(edges.iter());
+
+        "OK".to_string()
     }
+}
+
+// delete
+fn map_edge<'a, E>(to_node: &'a str, nodes: &'a HashMap<&str, NodeIndex<E>>) -> &'a NodeIndex<E> {
+    nodes.get(to_node).unwrap()
 }
 
 #[cfg(test)]
