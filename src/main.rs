@@ -44,6 +44,8 @@ enum PuzzleDay {
 }
 
 fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
+
     let args = Args::parse();
 
     let puzzles = match args.day {

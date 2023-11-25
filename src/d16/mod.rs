@@ -1,31 +1,34 @@
 use crate::PuzzleRun;
+use nom::AsBytes;
 use petgraph::{
-    graph::{Graph, NodeIndex, UnGraph},
-    IntoWeightedEdge,
+    algo::BoundedMeasure,
+    data::DataMap,
+    graph::{EdgeReference, Graph, NodeIndex, UnGraph},
+    visit::{Data, EdgeRef, GraphBase, IntoEdgesDirected, NodeIndexable},
+    Direction, IntoWeightedEdge,
 };
 use regex::Regex;
 use std::collections::HashMap;
+use tracing::{event, info, instrument, Level};
 
 pub(crate) fn get_runs() -> Vec<Box<dyn PuzzleRun>> {
     vec![Box::new(Part1)]
 }
 
-const TOTAL_TIME: u32 = 30;
-
 #[derive(Debug, Clone)]
 struct Valve {
-    name: String,
+    name: [u8; 2],
     rate: u32,
-    duration: u32,
-    tunnels: Vec<String>,
+    tunnels: Vec<[u8; 2]>,
 }
 
 impl Valve {
-    fn new(name: String, rate: u32, tunnels: Vec<String>) -> Self {
+    fn new(name_in: &[u8], rate: u32, tunnels: Vec<[u8; 2]>) -> Self {
+        let mut name: [u8; 2] = Default::default();
+        name.copy_from_slice(name_in);
         Self {
             name,
             rate,
-            duration: 0,
             tunnels,
         }
     }
@@ -45,9 +48,16 @@ impl std::str::FromStr for Valve {
         .unwrap();
         match re.captures(s).map(|c| c.extract()) {
             Some((_, [name, rate, tunnels])) => Ok(Valve::new(
-                name.into(),
+                &name.as_bytes()[0..2],
                 u32::from_str(rate).unwrap(),
-                tunnels.split(',').map(|s| s.trim().to_owned()).collect(),
+                tunnels
+                    .split(',')
+                    .map(|s| {
+                        let mut a: [u8; 2] = Default::default();
+                        a.clone_from_slice(&s.trim()[0..2].as_bytes());
+                        a
+                    })
+                    .collect(),
             )),
             None => Err(ValveParseError {
                 msg: format!("failed to parse: {}", s),
@@ -62,226 +72,287 @@ impl core::fmt::Display for ValveParseError {
     }
 }
 
+type NodeId = <Graph<ValveState, ()> as GraphBase>::NodeId;
+type CostType = HashMap<(NodeId, NodeId), u32>;
+
+/*
 #[derive(Clone, Debug)]
-struct WorldState {
-    valves: HashMap<String, Valve>,
-    at: String,
-    time_remaining: u32,
+struct WorldState<'a, K>
+where
+    K: BoundedMeasure,
+{
+    graph: Graph<&'a str, ()>,
+    costs: CostType<'a, K>,
 }
+*/
 
 #[derive(Debug)]
 enum PathStep {
     OpenValve {
-        total_flow: u32,
-        time_remaining: u32,
-        duration: u32,
+        time: u32,
         rate: u32,
-        at: String,
+        flow_at_this_step: u32,
+        valve_opened: NodeId,
         next: Box<PathStep>,
     },
     StepTo {
-        total_flow: u32,
-        time_remaining: u32,
-        step_to: String,
+        time: u32,
+        flow_at_this_step: u32,
+        step_to: NodeId,
         next: Box<PathStep>,
     },
-    Complete(u32),
+    Complete,
 }
 
 impl PathStep {
-    fn total_flow(&self) -> u32 {
-        match self {
-            PathStep::Complete(v) => *v,
-            PathStep::StepTo {
-                total_flow,
-                time_remaining: _,
-                step_to: _,
-                next: _,
-            } => *total_flow,
-            PathStep::OpenValve {
-                total_flow,
-                time_remaining: _,
-                duration: _,
-                rate: _,
-                at: _,
-                next: _,
-            } => *total_flow,
+    fn flow_at_completion(&self) -> u32 {
+        let mut flow: u32 = 0;
+        let mut step = self;
+        loop {
+            match step {
+                PathStep::Complete => return flow,
+                PathStep::StepTo {
+                    time,
+                    step_to,
+                    flow_at_this_step,
+                    next,
+                } => {
+                    flow += flow_at_this_step;
+                    step = next;
+                }
+                PathStep::OpenValve {
+                    time,
+                    flow_at_this_step,
+                    rate,
+                    valve_opened,
+                    next,
+                } => {
+                    flow += flow_at_this_step;
+                    step = next;
+                }
+            }
         }
+        flow
     }
 
     fn dump(&self) {
         match self {
-            PathStep::Complete(v) => {
-                println!("completed with total flow {}", v);
+            PathStep::Complete => {
+                println!("completed");
             }
             PathStep::StepTo {
-                total_flow,
-                time_remaining,
+                time,
+                flow_at_this_step,
                 step_to,
                 next,
             } => {
-                println!(
-                    "at time {} move to {}",
-                    TOTAL_TIME - time_remaining + 1,
-                    step_to
-                );
+                println!(" move to {:?}", step_to);
                 next.dump();
             }
             PathStep::OpenValve {
-                total_flow,
-                time_remaining,
-                duration,
+                time,
+                flow_at_this_step,
                 rate,
-                at,
+                valve_opened,
                 next,
             } => {
-                println!(
-                    "at time {} opened valve at {} rate {} for duration {}",
-                    TOTAL_TIME - time_remaining + 1,
-                    at,
-                    rate,
-                    duration
-                );
+                println!("opened valve at {:?} rate {}", valve_opened, rate,);
                 next.dump();
             }
         }
     }
 }
 
-impl WorldState {
-    fn init<'a, T: Iterator<Item = &'a str>>(input: T) -> Result<Self, ValveParseError> {
-        let valves = input
-            .map(|s| {
-                let v = s.parse::<Valve>()?;
-                Ok((v.name.clone(), v))
-            })
-            .collect::<Result<HashMap<String, Valve>, ValveParseError>>()?;
-        Ok(Self {
-            valves,
-            at: "AA".to_string(),
-            time_remaining: 30,
+fn init_valves<'a, T: Iterator<Item = &'a str>>(input: T) -> HashMap<[u8; 2], Valve> {
+    input
+        .map(|s| {
+            let v = s.parse::<Valve>()?;
+            Ok((v.name.clone(), v))
         })
-    }
+        .collect::<Result<HashMap<[u8; 2], Valve>, ValveParseError>>()
+        .unwrap()
+}
 
-    fn turn_on_current_valve(&self) -> WorldState {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+struct ValveState {
+    name: [u8; 2],
+    rate: u32,
+    opened_time: u32,
+}
+
+impl ValveState {
+    fn init(valve: &Valve) -> Self {
+        Self {
+            name: valve.name,
+            rate: valve.rate,
+            opened_time: 0,
+        }
+    }
+}
+
+impl std::fmt::Display for ValveState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ValveState [at: {}, rate: {}, opened: {}",
+            std::str::from_utf8(self.name.as_bytes()).unwrap(),
+            self.rate,
+            self.opened_time
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+struct WorldState {
+    at: NodeId,
+    valves: HashMap<NodeId, ValveState>,
+}
+
+impl WorldState {
+    fn init<G>(start_from: NodeId, graph: &G, nodes: &HashMap<(NodeId, NodeId), u32>) -> Self
+    where
+        G: NodeIndexable + DataMap,
+        G: GraphBase<NodeId = NodeIndex>,
+        G: Data<NodeWeight = ValveState>,
+    {
+        Self {
+            at: start_from,
+            valves: nodes
+                .keys()
+                .flat_map(|(f, t)| {
+                    vec![
+                        (*f, *graph.node_weight(*f).unwrap()),
+                        (*t, *graph.node_weight(*t).unwrap()),
+                    ]
+                })
+                .collect(),
+        }
+    }
+    fn turn_on_current_valve(&self, time: u32) -> Self {
         let mut new_w = self.clone();
-        let v = new_w.valves.get_mut(&new_w.at).unwrap();
-        if v.duration > 0 {
+        let v = new_w.valves.get_mut(&self.at).unwrap();
+        if v.opened_time > 0 {
             panic!();
         }
-        v.duration = self.time_remaining - 1;
-        new_w.time_remaining -= 1;
+        v.opened_time = time;
         new_w
     }
 
-    fn take_tunnel(&self, to: &str) -> WorldState {
+    fn take_tunnel(&self, to: NodeId) -> Self {
         let mut new_w = self.clone();
-        let mut v = new_w.valves.get_mut(&new_w.at).unwrap();
-        if !v.tunnels.iter().any(|x| x == to) {
-            panic!();
-        }
-        new_w.time_remaining -= 1;
-        new_w.at = to.to_string();
+        new_w.at = to;
         new_w
     }
 
-    fn total_flow(&self) -> u32 {
-        self.valves.values().map(|v| v.duration * v.rate).sum()
+    fn get_valve(&self, id: NodeId) -> ValveState {
+        *self.valves.get(&id).unwrap()
+    }
+
+    fn get_current_valve(&self) -> ValveState {
+        self.get_valve(self.at)
     }
 
     fn is_complete(&self) -> bool {
-        self.valves.values().all(|v| v.rate == 0 || v.duration > 0)
+        self.valves
+            .values()
+            .all(|v| v.rate == 0 || v.opened_time > 0)
     }
 
-    fn print_debug(&self, level: usize) {
-        let mut s = String::new();
-        for i in 0..level {
-            s.push(' ');
-        }
-        s.push_str("WS at: ");
-        s.push_str(&self.at);
-        s.push_str(" [");
-        s.push_str(&format!("{:p}", self));
-        s.push_str("] (rem: ");
-        s.push_str(&format!("{}", self.time_remaining));
-        s.push_str(") ");
-        for v in self.valves.values() {
-            s.push_str(&v.name);
-            s.push_str(": [");
-            for t in &v.tunnels {
-                s.push_str(&t);
-                s.push(',');
-            }
-            s.push_str("] ");
-        }
-        println!("{}", s);
+    fn flow_per_step(&self) -> u32 {
+        self.valves.values().map(|v| v.rate as u32).sum()
     }
+}
 
-    fn best(&self, level: usize) -> Option<PathStep> {
-        if self.time_remaining == 0 {
-            return if self.is_complete() {
-                Some(PathStep::Complete(self.total_flow()))
+fn has_tunnel(graph: &Graph<ValveState, ()>, from: NodeId, to: NodeId) -> bool {
+    graph.contains_edge(
+        NodeIndex::new(graph.to_index(from)),
+        NodeIndex::new(graph.to_index(to)),
+    )
+}
+
+fn get_tunnels_from(
+    graph: &Graph<ValveState, ()>,
+    costs: &CostType,
+    from: NodeId,
+) -> Vec<(NodeId, u32)> {
+    costs
+        .iter()
+        .filter_map(|((f, t), cost)| {
+            if *f == from && *t != from {
+                Some((*t, *cost))
             } else {
                 None
-            };
-        }
-
-        let mut best_value = std::u32::MIN;
-        let mut best_step: Option<PathStep> = None;
-
-        let this_valve = self.valves.get(&self.at).unwrap();
-        if this_valve.duration == 0 && this_valve.rate > 0 {
-            let next = self.turn_on_current_valve();
-            if let Some(step) = next.best(level + 1) {
-                let v = next.valves.get(&self.at).unwrap();
-                best_value = step.total_flow();
-                best_step = Some(PathStep::OpenValve {
-                    total_flow: step.total_flow(),
-                    time_remaining: self.time_remaining,
-                    rate: v.rate,
-                    duration: v.duration,
-                    at: self.at.clone(),
-                    next: Box::new(step),
-                });
             }
-        }
+        })
+        .collect()
+}
 
-        //self.print_debug(level);
-        //println!("[{:p}] {:?}", self, self);
-        for t in &this_valve.tunnels[..] {
-            let next = self.take_tunnel(t);
-            if let Some(step) = next.best(level + 1) {
-                let this_flow = step.total_flow();
-                if this_flow > best_value {
-                    best_step.replace(PathStep::StepTo {
-                        total_flow: step.total_flow(),
-                        time_remaining: self.time_remaining,
-                        step_to: t.clone(),
-                        next: Box::new(step),
-                    });
-                    best_value = this_flow;
-                }
-            }
-        }
-
-        if best_step.is_some() {
-            best_step
-        } else if self.is_complete() {
-            Some(PathStep::Complete(self.total_flow()))
+fn best(
+    graph: &Graph<ValveState, ()>,
+    costs: &CostType,
+    world_state: WorldState,
+    time_at_start: u32,
+    time_limit: u32,
+) -> Option<PathStep> {
+    if time_at_start >= time_limit {
+        return if world_state.is_complete() {
+            Some(PathStep::Complete)
         } else {
             None
+        };
+    }
+    event!(Level::INFO, time = time_at_start, at = %graph[world_state.at]);
+
+    let mut best_value = std::u32::MIN;
+    let mut best_step: Option<PathStep> = None;
+
+    let this_valve = world_state.get_current_valve();
+    if this_valve.opened_time == 0 && this_valve.rate > 0 {
+        let next = world_state.turn_on_current_valve(time_at_start + 1);
+        if let Some(step) = best(graph, costs, next, time_at_start + 1, time_limit) {
+            event!(Level::INFO, "turning on valve at {}", this_valve);
+            let v = world_state.get_current_valve();
+            best_value = step.flow_at_completion();
+            best_step.replace(PathStep::OpenValve {
+                time: time_at_start + 1,
+                flow_at_this_step: world_state.flow_per_step(),
+                rate: v.rate,
+                valve_opened: world_state.at,
+                next: Box::new(step),
+            });
         }
     }
 
-    fn to_graph(&self) -> UnGraph<&str, ()> {
-        /*
-        UnGraph::<&str, ()>::from_edges(
-            self.valves
-                .values()
-                .flat_map(|v| v.tunnels.iter().map(|t| (v.name.as_str(), t.as_str()))),
-        )
-        */
-        todo!()
+    //self.print_debug(level);
+    //println!("[{:p}] {:?}", self, self);
+    for (t, cost) in get_tunnels_from(graph, costs, world_state.at) {
+        event!(
+            Level::INFO,
+            "tring a move from {} to {}",
+            graph[world_state.at],
+            graph[t]
+        );
+        let next = world_state.take_tunnel(t);
+        if let Some(step) = best(graph, costs, next, time_at_start + cost as u32, time_limit) {
+            let this_flow = step.flow_at_completion();
+            if this_flow > best_value {
+                best_step.replace(PathStep::StepTo {
+                    time: time_at_start + cost,
+                    flow_at_this_step: world_state.flow_per_step(),
+                    step_to: t.clone(),
+                    next: Box::new(step),
+                });
+                best_value = this_flow;
+            }
+        }
+    }
+
+    if best_step.is_some() {
+        best_step
+    } else if world_state.is_complete() {
+        Some(PathStep::Complete)
+    } else {
+        None
     }
 }
 
@@ -312,36 +383,49 @@ fn vec_set(v: &mut Vec<u64>, row_size: usize, i: usize, j: usize, value: u64) {
 
 impl PuzzleRun for Part1 {
     fn input_data(&self) -> anyhow::Result<&str> {
-        Ok(test_data())
+        Ok(simple_test_data())
     }
 
     fn run(&self, input: &str) -> String {
-        let state = WorldState::init(input.lines()).unwrap();
-        let mut graph = Graph::<&str, ()>::new();
+        let valves = init_valves(input.lines());
+        let mut graph = Graph::<ValveState, ()>::new();
 
-        let nodes: HashMap<&str, NodeIndex<_>> = state
-            .valves
-            .keys()
-            .map(|s| (s.as_str(), graph.add_node(s)))
-            .collect();
-
-        let edges: Vec<(NodeIndex<_>, NodeIndex<_>)> = nodes
+        let nodes: HashMap<[u8; 2], NodeIndex<_>> = valves
             .iter()
-            .flat_map(|(&id, &from_node)| {
-                let nodes = &nodes;
-                state
-                    .valves
-                    .get(id)
-                    .unwrap()
-                    .tunnels
-                    .iter()
-                    .map(move |t| (from_node, *nodes.get(t.as_str()).unwrap()))
-                //                    .map(move |t| (from_node, map_edge(t.as_str(), nodes)))
-            })
+            .map(|(k, v)| (*k, graph.add_node(ValveState::init(v))))
             .collect();
-        graph.extend_with_edges(edges.iter());
 
-        "OK".to_string()
+        let start_node: NodeId = graph.from_index(nodes.get(b"AA").unwrap().index());
+
+        graph.extend_with_edges(nodes.iter().flat_map(|(id, &from_node)| {
+            let nodes = &nodes;
+            valves
+                .get(id)
+                .unwrap()
+                .tunnels
+                .iter()
+                .map(move |t| (from_node, *nodes.get(t).unwrap()))
+            //                    .map(move |t| (from_node, map_edge(t.as_str(), nodes)))
+        }));
+
+        let mut costs: HashMap<_, _> = petgraph::algo::floyd_warshall(&graph, |e| 1).unwrap();
+        costs.retain(|(from, to), _| {
+            *from == start_node || (graph[*from].rate > 0 && graph[*to].rate > 0)
+        });
+
+        match best(
+            &graph,
+            &costs,
+            WorldState::init(start_node, &graph, &costs),
+            0,
+            30,
+        ) {
+            Some(path) => {
+                path.dump();
+                "OK".to_string()
+            }
+            None => "failed".to_string(),
+        }
     }
 }
 
@@ -355,6 +439,10 @@ mod test {
 
     use super::*;
     use regex::Regex;
+
+    fn setup() {
+        tracing_subscriber::fmt::init();
+    }
 
     #[test]
     fn test_parse() {
@@ -376,6 +464,7 @@ mod test {
 
     #[test]
     fn test_part1() {
+        setup();
         let p1 = Part1;
         p1.run(p1.input_data().unwrap());
     }
